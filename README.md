@@ -17,12 +17,12 @@ Atlin is a plain-text key-value format with minimal syntax and maximum readabili
 | Rule | Behaviour |
 |------|-----------|
 | `@key` at line start | Declares a key. Everything after `@` on that line is the key name. |
-| Line(s) after key (not starting with `@`) | The value for that key. Multi-line values are supported. |
-| Exactly **one** blank line before a `@` line | Ignored — used as a visual separator between entries. |
-| **More than one** blank line before a `@` line | All except the last are part of the value. |
+| Line(s) after key (not starting with a marker) | The value for that key. Multi-line values are supported. |
+| Exactly **one** blank line before a key line | Ignored — used as a visual separator between entries. |
+| **More than one** blank line before a key line | All except the last are part of the value. |
 | Blank line(s) at end of file | Always ignored (treated as file-ending whitespace). |
 | Text before any key | Assigned to the empty-string key `""`. |
-| `@` alone on a line | Produces the empty-string key `""`. |
+| Marker alone on a line (e.g. `@`) | Produces the empty-string key `""`. |
 | Duplicate keys | Values are **concatenated** with a newline (`\n`). |
 | `\@` at line start | Escaped — treated as a literal `@` in the value. |
 | `@` not at line start | Always part of the value (e.g. email addresses). |
@@ -168,6 +168,52 @@ $text = $atlin->serialize([
 
 ---
 
+## Custom Markers
+
+By default, Atlin uses `@` as the key marker. You can change this — or define
+multiple markers — via `AtlinConfig::$markers`.
+
+```php
+use Nabeghe\Atlin\Atlin;
+use Nabeghe\Atlin\Config\AtlinConfig;
+
+// Use # as the only marker
+$config = new AtlinConfig(markers: ['#']);
+$atlin  = new Atlin($config);
+
+$data = $atlin->parse("#title\nAtlin Format\n\n#body\nHello World");
+// ['title' => 'Atlin Format', 'body' => 'Hello World']
+```
+
+You can also define **multiple markers** — all of them will be recognised when
+parsing, and the **first one** in the list is used for serialization:
+
+```php
+// Both @ and # are valid key markers; serialize() will use @
+$config = new AtlinConfig(markers: ['@', '#']);
+$atlin  = new Atlin($config);
+
+$data = $atlin->parse("@key1\nvalue1\n\n#key2\nvalue2");
+// ['key1' => 'value1', 'key2' => 'value2']
+
+echo $atlin->serialize(['greeting' => 'Hi!']);
+// @greeting
+// Hi!
+```
+
+The escape rule applies to **all** configured markers. To use a marker character
+literally at the start of a value line, prefix it with `\`:
+
+```
+#title
+\#this line starts with a hash but is NOT a key
+```
+
+If `markers` is empty or contains no valid characters, Atlin silently falls back
+to `['@']`.
+
+---
+
 ## Caching
 
 Atlin supports three cache backends. Caching is **disabled by default** — enable
@@ -260,6 +306,7 @@ Uses the file path as the cache key when `$useCache` is `true`.
 ### `Atlin::serialize(array $data, bool $blankLines = true): string`
 
 Convert an associative array back to Atlin format.  
+Uses the primary marker (first entry in `markers`).  
 Set `$blankLines` to `false` to omit blank separators between entries.
 
 ### `Atlin::invalidate(string $cacheKey, string $content = ''): void`
@@ -273,6 +320,14 @@ Remove all cache entries managed by the current driver.
 ### `Atlin::getCache(): CacheInterface`
 
 Access the underlying cache driver instance.
+
+### `Atlin::getPrimaryMarker(): string`
+
+Return the primary marker character used for serialization.
+
+### `Atlin::getMarkerMap(): array`
+
+Return the full marker map (`array<string, true>`) for inspection or debugging.
 
 ---
 

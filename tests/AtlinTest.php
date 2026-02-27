@@ -273,4 +273,52 @@ final class AtlinTest extends TestCase
         array_map('unlink', glob($dir . '/*') ?: []);
         @rmdir($dir);
     }
+
+    public function testCustomMarker(): void
+    {
+        $config = new AtlinConfig(null, 0, true, ['#']);
+        $atlin  = new Atlin($config);
+
+        $result = $atlin->parse("#key\nvalue");
+        $this->assertSame('value', $result['key']);
+        // @ should now be treated as a plain value character
+        $this->assertSame('@notakey', $atlin->parse("#k\n@notakey")['k']);
+    }
+
+    public function testMultipleMarkers(): void
+    {
+        $config = new AtlinConfig(null, 0, true, ['@', '#']);
+        $atlin  = new Atlin($config);
+
+        $result = $atlin->parse("@key1\nval1\n\n#key2\nval2");
+        $this->assertSame('val1', $result['key1']);
+        $this->assertSame('val2', $result['key2']);
+    }
+
+    public function testEscapeCustomMarker(): void
+    {
+        $config = new AtlinConfig(null, 0, true, ['#']);
+        $atlin  = new Atlin($config);
+
+        $result = $atlin->parse("#key\n\\#not-a-key");
+        $this->assertStringContainsString('#not-a-key', $result['key']);
+    }
+
+    public function testSerializeUsesFirstMarker(): void
+    {
+        $config = new AtlinConfig(null, 0, true, ['#', '@']);
+        $atlin  = new Atlin($config);
+
+        $out = $atlin->serialize(['k' => 'v']);
+        $this->assertStringStartsWith('#k', $out);
+    }
+
+    public function testEmptyMarkersDefaultsToAt(): void
+    {
+        $config = new AtlinConfig(null, 0, true, []);
+        $atlin  = new Atlin($config);
+
+        $result = $atlin->parse("@key\nvalue");
+        $this->assertSame('value', $result['key']);
+    }
 }
