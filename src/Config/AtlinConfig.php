@@ -28,13 +28,24 @@ final class AtlinConfig
      */
     public bool $contentHashKey;
 
+    /**
+     * When true, lines whose first character is `#` are treated as comments
+     * and silently discarded during parsing. A line with a leading space before
+     * `#` is NOT a comment — it is a regular value line.
+     *
+     * Default: true (comments enabled).
+     */
+    public bool $comments;
+
     public function __construct(
         ?CacheInterface $cache          = null,
         int             $cacheTtl       = 0,
-        bool            $contentHashKey = true
+        bool            $contentHashKey = true,
+        bool            $comments       = true
     ) {
         $this->cache          = $cache ?? new NullCache();
         $this->cacheTtl       = $cacheTtl;
         $this->contentHashKey = $contentHashKey;
+        $this->comments       = $comments;
     }
 }

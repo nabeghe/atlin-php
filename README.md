@@ -25,6 +25,7 @@ Atlin is a plain-text key-value format with minimal syntax and maximum readabili
 | `@` alone on a line | Produces the empty-string key `""`. |
 | Duplicate keys | Values are **concatenated** with a newline (`\n`). |
 | `\@` at line start | Escaped — treated as a literal `@` in the value. |
+| `\#` at line start | Escaped — treated as a literal `#` in the value (when comments enabled). |
 | `@` not at line start | Always part of the value (e.g. email addresses). |
 | `@` with a leading space (e.g. ` @foo`) | Part of the value, NOT a key. |
 

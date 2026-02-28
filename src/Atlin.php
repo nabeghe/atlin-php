@@ -10,12 +10,17 @@ use Nabeghe\Atlin\Config\AtlinConfig;
  * ## Format rules
  *
  * - A line starting with `@` defines a key; everything after `@` on that line is the key name.
- * - The content on the *next* line(s) that do NOT start with `@` is the value for that key.
- * - A blank line before a `@`-key line is ignored (acts as visual separator).
- * - Text appearing before any key is assigned to the empty-string key `""`.
- * - An `@` with nothing after it produces the empty-string key `""`.
- * - Duplicate keys cause their values to be **concatenated** (joined with a newline).
+ * - The content on the next line(s) that do NOT start with `@` is the value for that key.
+ * - Exactly one blank line before a `@`-key line is ignored (acts as visual separator).
+ * - More than one blank line before a `@`-key line: all except the last become part of the value.
+ * - Blank lines at EOF are always ignored.
+ * - Text appearing before any key is assigned to the empty-string key "".
+ * - An `@` with nothing after it produces the empty-string key "".
+ * - Duplicate keys cause their values to be concatenated (joined with a newline).
  * - To use a literal `@` at the start of a line, escape it: `\@`.
+ * - When {@see AtlinConfig::$comments} is true (default), lines starting with `#`
+ *   are treated as comments and ignored. A `#` preceded by whitespace is NOT a comment.
+ * - To use a literal `#` at the start of a value line, escape it: `\#`.
  *
  * ## Performance
  *
@@ -40,9 +45,9 @@ class Atlin
     /**
      * Parse an Atlin-formatted string into an associative array.
      *
-     * @param  string  $content  Raw Atlin text.
+     * @param  string  $content   Raw Atlin text.
      * @param  string  $cacheKey  Optional logical key used for cache look-up.
-     *                         When empty, caching is skipped.
+     *                            When empty, caching is skipped.
      *
      * @return array<string, string>
      */
@@ -50,7 +55,7 @@ class Atlin
     {
         if ($cacheKey !== '') {
             $resolvedKey = $this->resolveKey($cacheKey, $content);
-            $cached = $this->config->cache->get($resolvedKey);
+            $cached      = $this->config->cache->get($resolvedKey);
             if ($cached !== null) {
                 return $cached;
             }
@@ -69,7 +74,7 @@ class Atlin
      * Parse an Atlin-formatted file into an associative array.
      *
      * @param  string  $filePath  Absolute or relative path to the `.atlin` file.
-     * @param  bool  $useCache  Whether to cache using the file path as key.
+     * @param  bool    $useCache  Whether to cache using the file path as key.
      *
      * @return array<string, string>
      * @throws \RuntimeException When the file cannot be read.
@@ -80,7 +85,7 @@ class Atlin
             throw new \RuntimeException("Atlin: cannot read file '$filePath'.");
         }
 
-        $content = file_get_contents($filePath);
+        $content  = file_get_contents($filePath);
         $cacheKey = $useCache ? $filePath : '';
 
         return $this->parse((string) $content, $cacheKey);
@@ -89,8 +94,8 @@ class Atlin
     /**
      * Serialize an associative array into Atlin format.
      *
-     * @param  array<string, string>  $data  The key-value pairs to serialize.
-     * @param  bool  $blankLines  Insert a blank line between entries.
+     * @param  array<string, string>  $data        The key-value pairs to serialize.
+     * @param  bool                   $blankLines  Insert a blank line between entries.
      *
      * @return string
      */
@@ -115,7 +120,7 @@ class Atlin
      * Remove a cached entry by its logical key.
      *
      * @param  string  $cacheKey  The logical cache key.
-     * @param  string  $content  Supply the same content when contentHashKey is enabled.
+     * @param  string  $content   Supply the same content when contentHashKey is enabled.
      */
     public function invalidate(string $cacheKey, string $content = ''): void
     {
@@ -156,7 +161,9 @@ class Atlin
         $currentKey    = null;
         $valueBuffer   = '';
         $hasValue      = false;
-        $pendingBlanks = 0; // count of consecutive blank lines not yet committed
+        $pendingBlanks = 0;
+
+        $comments = $this->config->comments;
 
         $flush = static function () use (&$result, &$currentKey, &$valueBuffer, &$hasValue, &$pendingBlanks): void {
             if ($currentKey === null && !$hasValue) {
@@ -185,13 +192,27 @@ class Atlin
         for ($i = 0; $i < $lineCount; $i++) {
             $line = $lines[$i];
 
-            // ── Key line ──────────────────────────────────────────────────────────
+            // ── Comment line ──────────────────────────────────────────────────
+            // Only when comments are enabled AND `#` is the very first character.
+            // `\#` at line start is an escaped hash → not a comment, strip the backslash.
+            // A line like "  # note" has a leading space → NOT a comment.
+            if ($comments && isset($line[0]) && $line[0] === '#') {
+                continue;
+            }
+
+            // ── Escaped # at start ────────────────────────────────────────────
+            // \# → strip the backslash, treat the rest as a normal value line.
+            // Only meaningful when comments are enabled; when comments are off,
+            // `#` is already treated as plain text and no escaping is needed.
+            if ($comments && isset($line[0], $line[1]) && $line[0] === '\\' && $line[1] === '#') {
+                $line = substr($line, 1);
+            }
+
+            // ── Key line ──────────────────────────────────────────────────────
             if (isset($line[0]) && $line[0] === '@') {
-                // Discard exactly ONE pending blank (the separator),
-                // emit the rest into the value buffer BEFORE flushing.
                 $blanksToEmit = max(0, $pendingBlanks - 1);
                 if ($blanksToEmit > 0 && ($hasValue || $currentKey !== null)) {
-                    $valueBuffer  .= str_repeat("\n", $blanksToEmit);
+                    $valueBuffer .= str_repeat("\n", $blanksToEmit);
                 }
                 $pendingBlanks = 0;
 
@@ -200,23 +221,20 @@ class Atlin
                 continue;
             }
 
-            // ── Escaped @ at start ────────────────────────────────────────────────
+            // ── Escaped @ at start ────────────────────────────────────────────
             if (isset($line[0], $line[1]) && $line[0] === '\\' && $line[1] === '@') {
                 $line = substr($line, 1);
             }
 
-            // ── Blank line ────────────────────────────────────────────────────────
+            // ── Blank line ────────────────────────────────────────────────────
             if (trim($line) === '') {
-                // Don't commit yet — wait to see what comes next
                 if ($hasValue || $currentKey !== null) {
                     $pendingBlanks++;
                 }
-                // If we haven't started any key/value yet, discard blank lines
                 continue;
             }
 
-            // ── Value line ────────────────────────────────────────────────────────
-            // Commit all pending blanks first (next line is NOT a key, so they're all value)
+            // ── Value line ────────────────────────────────────────────────────
             if ($pendingBlanks > 0) {
                 $valueBuffer  .= str_repeat("\n", $pendingBlanks);
                 $pendingBlanks = 0;
@@ -230,7 +248,6 @@ class Atlin
             }
         }
 
-        // At EOF: discard all trailing blank lines (treated as file ending whitespace)
         $pendingBlanks = 0;
 
         $flush();
