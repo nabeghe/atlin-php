@@ -20,10 +20,14 @@ final class FileCache implements CacheInterface
      * @param string $directory Absolute path to the cache directory.
      * @param string $prefix    Optional filename prefix.
      *
-     * @throws CacheException When the directory cannot be created or written to.
+     * @throws CacheException When the prefix is invalid or the directory cannot be created or written to.
      */
     public function __construct(string $directory, string $prefix = 'atlin_')
     {
+        if (preg_match('/\A[a-zA-Z0-9_-]*\z/', $prefix) !== 1) {
+            throw new CacheException("Invalid cache prefix: {$prefix}");
+        }
+
         $this->prefix    = $prefix;
         $this->directory = rtrim($directory, DIRECTORY_SEPARATOR);
 
@@ -63,6 +67,8 @@ final class FileCache implements CacheInterface
 
     public function set(string $key, array $data, int $ttl = 0): void
     {
+        $this->assertExportableArray($data);
+
         $file    = $this->filePath($key);
         $meta    = $this->metaPath($key);
         $content = '<?php return ' . var_export($data, true) . ";\n";
@@ -96,6 +102,28 @@ final class FileCache implements CacheInterface
     public function isAvailable(): bool
     {
         return is_dir($this->directory) && is_writable($this->directory);
+    }
+
+    /**
+     * Ensure that `$data` contains only scalars, null, or nested arrays so `var_export()`
+     * never emits `ClassName::__set_state(...)` or `NULL` for resources into the cached `.php` file.
+     *
+     * @param array<mixed> $data
+     * @throws CacheException
+     */
+    private function assertExportableArray(array $data): void
+    {
+        foreach ($data as $value) {
+            if (is_array($value)) {
+                $this->assertExportableArray($value);
+                continue;
+            }
+
+            if ($value !== null && !is_scalar($value)) {
+                $type = get_debug_type($value);
+                throw new CacheException("FileCache only supports scalar, null, and array values; {$type} given.");
+            }
+        }
     }
 
     private function filePath(string $key): string

@@ -98,4 +98,16 @@ final class FileCacheTest extends TestCase
         $this->assertStringStartsWith('<?php', $content);
         $this->assertStringContainsString('return ', $content);
     }
+
+    public function testInvalidPrefixThrows(): void
+    {
+        $this->expectException(CacheException::class);
+        new FileCache($this->dir, '../bad_prefix_');
+    }
+
+    public function testNestedObjectInSetThrows(): void
+    {
+        $this->expectException(CacheException::class);
+        $this->cache->set('obj_key', ['nested' => new \stdClass()]);
+    }
 }
